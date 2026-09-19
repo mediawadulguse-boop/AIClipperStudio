@@ -84,6 +84,172 @@ jobs:
             throw "EXE terlalu kecil / build tidak valid"
           }
 
+      - name: Import code signing certificate
+        if: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
+        shell: pwsh
+        env:
+          CERT_B64: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $certPath = Join-Path $env:RUNNER_TEMP "aiclipper_codesign.pfx"
+          [IO.File]::WriteAllBytes($certPath, [Convert]::FromBase64String($env:CERT_B64))
+          "AICLIPPER_CERT_PATH=$certPath" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Sign application binaries
+        if: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
+        shell: pwsh
+        env:
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Filter signtool.exe -Recurse |
+            Where-Object { $_.FullName -match '\\x64\\signtool\.exe
+          New-Item -ItemType Directory -Force release | Out-Null
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\\Inno Setup 6\\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if (-not $iscc) { throw "Inno Setup tidak ditemukan" }
+          & $iscc "installer\AIClipperStudio.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Gagal membuat installer" }
+
+      - name: Sign installer
+        if: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
+        shell: pwsh
+        env:
+          CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Filter signtool.exe -Recurse |
+            Where-Object { $_.FullName -match '\\x64\\signtool\.exe
+        run: |
+          $installer = Get-ChildItem .\release\AIClipperStudio_Setup_*.exe | Select-Object -First 1
+          if (-not $installer) { throw "Installer tidak ditemukan" }
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash
+          "$($installer.Name) SHA256=$hash" | Set-Content .\release\SHA256.txt
+          Write-Host "Installer:" $installer.FullName
+          Write-Host "SHA256:" $hash
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIClipperStudio-Windows-Installer
+          path: |
+            release/AIClipperStudio_Setup_*.exe
+            release/SHA256.txt
+          if-no-files-found: error
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installer = (Get-ChildItem .\release\AIClipperStudio_Setup_*.exe | Select-Object -First 1).FullName
+          gh release create "${{ github.ref_name }}" $installer .\release\SHA256.txt --title "AI Clipper Studio ${{ github.ref_name }}" --notes "Windows x64 one-click installer."
+ } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe tidak ditemukan" }
+
+          $targets = Get-ChildItem ".\dist\AIClipperStudio" -Recurse -File |
+            Where-Object { $_.Extension -in ".exe", ".dll", ".pyd" }
+
+          foreach ($file in $targets) {
+            & $signtool.FullName sign /fd SHA256 /td SHA256 /tr "http://timestamp.digicert.com" /f $env:AICLIPPER_CERT_PATH /p $env:CERT_PASSWORD $file.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Signing gagal: $($file.FullName)" }
+          }
+
+      - name: Build one-click installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          $iscc = @(
+            "${env:ProgramFiles(x86)}\\Inno Setup 6\\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
+          if (-not $iscc) { throw "Inno Setup tidak ditemukan" }
+          & $iscc "installer\AIClipperStudio.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Gagal membuat installer" }
+
+      - name: Generate SHA256
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem .\release\AIClipperStudio_Setup_*.exe | Select-Object -First 1
+          if (-not $installer) { throw "Installer tidak ditemukan" }
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash
+          "$($installer.Name) SHA256=$hash" | Set-Content .\release\SHA256.txt
+          Write-Host "Installer:" $installer.FullName
+          Write-Host "SHA256:" $hash
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIClipperStudio-Windows-Installer
+          path: |
+            release/AIClipperStudio_Setup_*.exe
+            release/SHA256.txt
+          if-no-files-found: error
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installer = (Get-ChildItem .\release\AIClipperStudio_Setup_*.exe | Select-Object -First 1).FullName
+          gh release create "${{ github.ref_name }}" $installer .\release\SHA256.txt --title "AI Clipper Studio ${{ github.ref_name }}" --notes "Windows x64 one-click installer."
+ } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe tidak ditemukan" }
+          $installer = Get-ChildItem ".\release\AIClipperStudio_Setup_*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "Installer tidak ditemukan untuk signing" }
+          & $signtool.FullName sign /fd SHA256 /td SHA256 /tr "http://timestamp.digicert.com" /f $env:AICLIPPER_CERT_PATH /p $env:CERT_PASSWORD $installer.FullName
+          if ($LASTEXITCODE -ne 0) { throw "Signing installer gagal" }
+          & $signtool.FullName verify /pa /v $installer.FullName
+          if ($LASTEXITCODE -ne 0) { throw "Verifikasi signature installer gagal" }
+
+      - name: Generate SHA256
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem .\release\AIClipperStudio_Setup_*.exe | Select-Object -First 1
+          if (-not $installer) { throw "Installer tidak ditemukan" }
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash
+          "$($installer.Name) SHA256=$hash" | Set-Content .\release\SHA256.txt
+          Write-Host "Installer:" $installer.FullName
+          Write-Host "SHA256:" $hash
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIClipperStudio-Windows-Installer
+          path: |
+            release/AIClipperStudio_Setup_*.exe
+            release/SHA256.txt
+          if-no-files-found: error
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installer = (Get-ChildItem .\release\AIClipperStudio_Setup_*.exe | Select-Object -First 1).FullName
+          gh release create "${{ github.ref_name }}" $installer .\release\SHA256.txt --title "AI Clipper Studio ${{ github.ref_name }}" --notes "Windows x64 one-click installer."
+ } |
+            Sort-Object FullName -Descending |
+            Select-Object -First 1
+          if (-not $signtool) { throw "signtool.exe tidak ditemukan" }
+
+          $targets = Get-ChildItem ".\dist\AIClipperStudio" -Recurse -File |
+            Where-Object { $_.Extension -in ".exe", ".dll", ".pyd" }
+
+          foreach ($file in $targets) {
+            & $signtool.FullName sign /fd SHA256 /td SHA256 /tr "http://timestamp.digicert.com" /f $env:AICLIPPER_CERT_PATH /p $env:CERT_PASSWORD $file.FullName
+            if ($LASTEXITCODE -ne 0) { throw "Signing gagal: $($file.FullName)" }
+          }
+
       - name: Build one-click installer
         shell: pwsh
         run: |
