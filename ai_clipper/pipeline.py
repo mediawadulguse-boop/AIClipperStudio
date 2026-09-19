@@ -47,7 +47,7 @@ def analyze(transcript: list[TranscriptSegment], cfg: AppConfig, on_status=None)
         if on_status: on_status("Analisis Local Lite selesai.")
         return heuristic[:cfg.max_candidates]
     try:
-        llm = LocalLLM(cfg.llama_model, cfg.llama_port)
+        llm = LocalLLM(cfg.qwen_model, cfg.llama_port)
         return llm.rank_candidates(heuristic, cfg.max_candidates, on_status)
     except Exception as e:
         if on_status: on_status(f"Qwen gagal/Belum siap; memakai Local Lite. Detail: {e}")
