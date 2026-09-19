@@ -186,7 +186,7 @@ class AIClipperApp(tk.Tk):
 
         ttk.Label(inner, text="Qwen", style="Panel.TLabel").grid(row=8, column=0, sticky="w", pady=5)
         self.qwen_var = tk.StringVar(value=self.cfg.qwen_model)
-        ttk.Combobox(inner, textvariable=self.qwen_var, state="readonly", values=["qwen3-4b", "qwen3-8b"], width=22).grid(row=8, column=1, sticky="w", padx=16, pady=5)
+        ttk.Combobox(inner, textvariable=self.qwen_var, state="readonly", values=["Qwen/Qwen3-4B-GGUF:Q4_K_M", "Qwen/Qwen3-8B-GGUF:Q4_K_M"], width=22).grid(row=8, column=1, sticky="w", padx=16, pady=5)
 
         buttons = ttk.Frame(inner, style="Panel.TFrame")
         buttons.grid(row=9, column=0, columnspan=3, sticky="w", pady=(18, 0))
@@ -208,7 +208,7 @@ class AIClipperApp(tk.Tk):
         self._clear_candidates()
         try:
             info = probe_video(path)
-            self.status_var.set(f"Video siap • {int(info.duration//60)}m {int(info.duration%60)}s • {info.width}×{info.height}")
+            self.status_var.set(f"Video siap • {int(info[\'duration\']//60)}m {int(info[\'duration\']%60)}s • {info[\'width\']}×{info[\'height\']}")
         except Exception:
             self.status_var.set("Video dipilih.")
 
