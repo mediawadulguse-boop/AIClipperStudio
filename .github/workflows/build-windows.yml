@@ -3,17 +3,19 @@ name: Build Windows Installer
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches:
+      - main
     paths:
       - "app.py"
       - "ai_clipper/**"
       - "installer/**"
       - "AIClipperStudio.spec"
       - "windows_app.manifest"
+      - "version_info.txt"
       - "requirements-build.txt"
       - "prepare_release_engines.py"
+      - "tests/**"
       - ".github/workflows/build-windows.yml"
-  push:
     tags:
       - "v*"
 
@@ -29,22 +31,6 @@ jobs:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Validate source
-        shell: pwsh
-        run: |
-          $required = @(
-            "app.py",
-            "AIClipperStudio.spec",
-            "windows_app.manifest",
-            "requirements-build.txt",
-            "prepare_release_engines.py",
-            "installer/AIClipperStudio.iss",
-            "ai_clipper/pipeline.py"
-          )
-          foreach ($f in $required) {
-            if (-not (Test-Path $f)) { throw "Source belum lengkap: $f" }
-          }
-
       - name: Setup Python 3.12
         uses: actions/setup-python@v5
         with:
@@ -58,15 +44,45 @@ jobs:
           python -m pip install -r requirements-build.txt
           choco install innosetup --yes --no-progress
 
+      - name: Static validation
+        shell: pwsh
+        run: |
+          python -m compileall app.py ai_clipper tests
+          python -m unittest discover -s tests -v
+
       - name: Prepare bundled engines
         shell: pwsh
         run: |
           python prepare_release_engines.py
 
+      - name: Validate bundled engines
+        shell: pwsh
+        run: |
+          $required = @(
+            "vendor_engines\ffmpeg",
+            "vendor_engines\whisper",
+            "vendor_engines\llama"
+          )
+          foreach ($p in $required) {
+            if (-not (Test-Path $p)) { throw "Engine bundle tidak lengkap: $p" }
+          }
+
       - name: Build application
         shell: pwsh
         run: |
           pyinstaller --clean --noconfirm AIClipperStudio.spec
+          if (-not (Test-Path ".\dist\AIClipperStudio\AIClipperStudio.exe")) {
+            throw "AIClipperStudio.exe tidak terbentuk"
+          }
+
+      - name: Smoke test packaged files
+        shell: pwsh
+        run: |
+          $exe = ".\dist\AIClipperStudio\AIClipperStudio.exe"
+          Write-Host "EXE size:" (Get-Item $exe).Length
+          if ((Get-Item $exe).Length -lt 100000) {
+            throw "EXE terlalu kecil / build tidak valid"
+          }
 
       - name: Build one-click installer
         shell: pwsh
@@ -76,6 +92,7 @@ jobs:
             "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
             "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
           ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+
           if (-not $iscc) { throw "Inno Setup tidak ditemukan" }
           & $iscc "installer\AIClipperStudio.iss"
           if ($LASTEXITCODE -ne 0) { throw "Gagal membuat installer" }
@@ -87,6 +104,8 @@ jobs:
           if (-not $installer) { throw "Installer tidak ditemukan" }
           $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash
           "$($installer.Name) SHA256=$hash" | Set-Content .\release\SHA256.txt
+          Write-Host "Installer:" $installer.FullName
+          Write-Host "SHA256:" $hash
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
