@@ -7,7 +7,7 @@ from .paths import config_path
 class AppConfig:
     ai_mode: str = "local_llm"
     whisper_model: str = "small"
-    llama_model: str = "Qwen/Qwen3-4B-GGUF:Q4_K_M"
+    qwen_model: str = "Qwen/Qwen3-4B-GGUF:Q4_K_M"
     language: str = "id"
     max_candidates: int = 12
     min_clip_seconds: int = 20
