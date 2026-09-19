@@ -1,0 +1,107 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "app.py"
+      - "ai_clipper/**"
+      - "installer/**"
+      - "AIClipperStudio.spec"
+      - "windows_app.manifest"
+      - "requirements-build.txt"
+      - "prepare_release_engines.py"
+      - ".github/workflows/build-windows.yml"
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Validate source
+        shell: pwsh
+        run: |
+          $required = @(
+            "app.py",
+            "AIClipperStudio.spec",
+            "windows_app.manifest",
+            "requirements-build.txt",
+            "prepare_release_engines.py",
+            "installer/AIClipperStudio.iss",
+            "ai_clipper/pipeline.py"
+          )
+          foreach ($f in $required) {
+            if (-not (Test-Path $f)) { throw "Source belum lengkap: $f" }
+          }
+
+      - name: Setup Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-build.txt
+          choco install innosetup --yes --no-progress
+
+      - name: Prepare bundled engines
+        shell: pwsh
+        run: |
+          python prepare_release_engines.py
+
+      - name: Build application
+        shell: pwsh
+        run: |
+          pyinstaller --clean --noconfirm AIClipperStudio.spec
+
+      - name: Build one-click installer
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release | Out-Null
+          $iscc = @(
+            "$env:ProgramFiles(x86)\Inno Setup 6\ISCC.exe",
+            "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+          ) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $iscc) { throw "Inno Setup tidak ditemukan" }
+          & $iscc "installer\AIClipperStudio.iss"
+          if ($LASTEXITCODE -ne 0) { throw "Gagal membuat installer" }
+
+      - name: Generate SHA256
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem .\release\AIClipperStudio_Setup_*.exe | Select-Object -First 1
+          if (-not $installer) { throw "Installer tidak ditemukan" }
+          $hash = (Get-FileHash $installer.FullName -Algorithm SHA256).Hash
+          "$($installer.Name) SHA256=$hash" | Set-Content .\release\SHA256.txt
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: AIClipperStudio-Windows-Installer
+          path: |
+            release/AIClipperStudio_Setup_*.exe
+            release/SHA256.txt
+          if-no-files-found: error
+
+      - name: Publish tagged release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $installer = (Get-ChildItem .\release\AIClipperStudio_Setup_*.exe | Select-Object -First 1).FullName
+          gh release create "${{ github.ref_name }}" $installer .\release\SHA256.txt --title "AI Clipper Studio ${{ github.ref_name }}" --notes "Windows x64 one-click installer."
