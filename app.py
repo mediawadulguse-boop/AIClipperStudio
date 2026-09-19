@@ -208,7 +208,7 @@ class AIClipperApp(tk.Tk):
         self._clear_candidates()
         try:
             info = probe_video(path)
-            self.status_var.set(f"Video siap • {int(info[\'duration\']//60)}m {int(info[\'duration\']%60)}s • {info[\'width\']}×{info[\'height\']}")
+            self.status_var.set(f"Video siap • {int(info['duration']//60)}m {int(info['duration']%60)}s • {info['width']}×{info['height']}")
         except Exception:
             self.status_var.set("Video dipilih.")
 
